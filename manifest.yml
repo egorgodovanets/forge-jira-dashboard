@@ -8,6 +8,15 @@ modules:
   function:
     - key: resolver
       handler: index.handler
+    - key: runMigrations
+      handler: migrations.run
+  sql:
+    - key: main
+      engine: mysql
+  scheduledTrigger:
+    - key: db-migrations
+      function: runMigrations
+      interval: hour
 resources:
   - key: main
     path: static/hello-world/build
