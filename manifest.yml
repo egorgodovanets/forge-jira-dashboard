@@ -10,6 +10,8 @@ modules:
       handler: index.handler
     - key: runMigrations
       handler: migrations.run
+    - key: seedData
+      handler: seed.trigger
   sql:
     - key: main
       engine: mysql
@@ -17,6 +19,12 @@ modules:
     - key: db-migrations
       function: runMigrations
       interval: hour
+  webtrigger:
+    - key: seed-webtrigger
+      function: seedData
+      urlFormat: v2
+      response:
+        type: dynamic
 resources:
   - key: main
     path: static/hello-world/build
