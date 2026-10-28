@@ -17,5 +17,52 @@ resolver.define('getProductsCount', async () => {
     return Number(result.rows[0].total)
 })
 
+resolver.define('getProducts', async () => {
+    const result = await sql
+        .prepare(`SELECT id, name, organization, state FROM products ORDER BY id LIMIT 5`)
+        .execute()
+    
+    return result.rows
+})
+
+resolver.define('getTasks', async () => {
+    const result = await sql   
+        .prepare(`
+            SELECT
+                t.id,
+                t.name AS task_name,
+                t.status,
+                p.name AS product_name
+            FROM tasks t
+            JOIN products p ON p.id = t.product_id
+            ORDER BY id
+            LIMIT 5
+        `)
+        .execute()
+
+    return result.rows
+})
+
+resolver.define('getHistory', async () => {
+  const result = await sql
+    .prepare(`
+      SELECT
+        h.id,
+        h.changed_at,
+        h.from_status,
+        h.to_status,
+        t.name AS task_name,
+        p.name AS product_name
+      FROM tasks_history h
+      JOIN tasks t    ON t.id = h.task_id
+      JOIN products p ON p.id = t.product_id
+      ORDER BY h.changed_at DESC, h.id DESC
+      LIMIT 5
+    `)
+    .execute();
+
+  return result.rows;
+});
+
 export const handler = resolver.getDefinitions();
 

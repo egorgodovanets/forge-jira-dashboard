@@ -5,12 +5,12 @@ function App() {
     const [data, setData] = useState(null);
 
     useEffect(() => {
-        invoke('getProductsCount').then(setData);
+        invoke('getHistory').then(setData);
     }, []);
 
     return (
         <div>
-            {data ? data : 'Loading...'}
+            {data ? <pre>{JSON.stringify(data, null, 2)}</pre> : 'Loading...'}
         </div>
     );
 }
