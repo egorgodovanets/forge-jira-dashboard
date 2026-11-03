@@ -9,8 +9,8 @@ function App() {
 
     useEffect(() => {
         setData(null);
-        invoke('getHistory', { page }).then(setData)
-    }, [page]);
+        invoke('getHistory', { page, productId }).then(setData)
+    }, [page, productId]);
 
     useEffect(() => {
         invoke('getProducts').then(setProducts);
@@ -21,7 +21,13 @@ function App() {
     return (
         <div>
             <div>
-                <select value={productId} onChange={(e) => setProductId(e.target.value)}>
+                <select 
+                    value={productId} 
+                    onChange={(e) => {
+                        setProductId(e.target.value);
+                        setPage(1);
+                    }}
+                >
                     <option value="">All products</option>
                     {products.map((product) => (
                     <option key={product.id} value={product.id}>
@@ -29,7 +35,6 @@ function App() {
                     </option>
                     ))}
                 </select>
-                <span> selected id: {productId || 'none'}</span>
             </div>
             <button onClick={() => setPage((p) => Math.max(p - 1, 1))} disabled={page === 1}>Prev</button>
             <span>Page {page} of {totalPages}</span>
