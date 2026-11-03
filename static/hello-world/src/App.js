@@ -4,16 +4,33 @@ import { invoke } from '@forge/bridge';
 function App() {
     const [data, setData] = useState(null);
     const [page, setPage] = useState(1);
+    const [products, setProducts] = useState([]);
+    const [productId, setProductId] = useState('');
 
     useEffect(() => {
         setData(null);
         invoke('getHistory', { page }).then(setData)
     }, [page]);
 
+    useEffect(() => {
+        invoke('getProducts').then(setProducts);
+    }, [])
+
     const totalPages = data ? Math.ceil(data.total / data.pageSize) : 1;
 
     return (
         <div>
+            <div>
+                <select value={productId} onChange={(e) => setProductId(e.target.value)}>
+                    <option value="">All products</option>
+                    {products.map((product) => (
+                    <option key={product.id} value={product.id}>
+                        {product.name}
+                    </option>
+                    ))}
+                </select>
+                <span> selected id: {productId || 'none'}</span>
+            </div>
             <button onClick={() => setPage((p) => Math.max(p - 1, 1))} disabled={page === 1}>Prev</button>
             <span>Page {page} of {totalPages}</span>
             <button onClick={() => setPage((p) => p + 1)} disabled={!data || page >= totalPages}>Next</button>

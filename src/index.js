@@ -19,7 +19,7 @@ resolver.define('getProductsCount', async () => {
 
 resolver.define('getProducts', async () => {
     const result = await sql
-        .prepare(`SELECT id, name, organization, state FROM products ORDER BY id LIMIT 5`)
+        .prepare(`SELECT id, name FROM products ORDER BY name`)
         .execute()
     
     return result.rows
@@ -35,7 +35,7 @@ resolver.define('getTasks', async () => {
                 p.name AS product_name
             FROM tasks t
             JOIN products p ON p.id = t.product_id
-            ORDER BY id
+            ORDER BY t.id
             LIMIT 5
         `)
         .execute()
@@ -43,7 +43,11 @@ resolver.define('getTasks', async () => {
     return result.rows
 })
 
-resolver.define('getHistory', async () => {
+resolver.define('getHistory', async ({ payload }) => {
+  const pageSize = 10;
+  const page = Math.max(Math.floor(Number(payload?.page)) || 1, 1);
+  const offset = (page - 1) * pageSize;
+
   const result = await sql
     .prepare(`
       SELECT
@@ -57,11 +61,21 @@ resolver.define('getHistory', async () => {
       JOIN tasks t    ON t.id = h.task_id
       JOIN products p ON p.id = t.product_id
       ORDER BY h.changed_at DESC, h.id DESC
-      LIMIT 5
+      LIMIT ${pageSize} OFFSET ${offset}
     `)
     .execute();
 
-  return result.rows;
+  const countResult = await sql 
+    .prepare(`
+        SELECT COUNT(*) AS total
+        FROM tasks_history h
+        JOIN tasks t ON t.id = h.task_id
+        JOIN products p ON p.id = t.product_id
+    `)
+    .execute()
+
+  const total = Number(countResult.rows[0].total);
+  return {rows: result.rows, total, page, pageSize };
 });
 
 export const handler = resolver.getDefinitions();
