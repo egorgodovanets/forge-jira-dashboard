@@ -49,8 +49,34 @@ resolver.define('getHistory', async ({ payload }) => {
   const offset = (page - 1) * pageSize;
   const productId = Number(payload?.productId);
   const hasProduct = Number.isInteger(productId) && productId > 0;
-  const where = hasProduct ? "WHERE p.id = ?" : "";
-  const params = hasProduct ? [productId] : [];
+  const conditions = [];
+  const params = [];
+
+  if (hasProduct) {
+    conditions.push('p.id = ?');
+    params.push(productId);
+  }
+
+  const STATUSES = ['open', 'in_progress', 'review', 'testing', 'done'];
+  const status = payload?.status;
+  if (STATUSES.includes(status)) {
+    conditions.push('h.to_status = ?');
+    params.push(status);
+  }
+
+  const DATE_FORMAT = /^\d{4}-\d{2}-\d{2}$/;
+
+  if (DATE_FORMAT.test(payload?.dateFrom ?? '')) {
+    conditions.push('h.changed_at >= ?');
+    params.push(`${payload.dateFrom} 00:00:00`);
+  }
+
+  if (DATE_FORMAT.test(payload?.dateTo ?? '')) {
+    conditions.push('h.changed_at <= ?');
+    params.push(`${payload.dateTo} 23:59:59`);
+  }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
   const result = await sql
     .prepare(`
