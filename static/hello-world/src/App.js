@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import { invoke } from '@forge/bridge';
 
 function App() {
@@ -9,6 +10,7 @@ function App() {
   const [status, setStatus] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [statusStats, setStatusStats] = useState(null);
 
   useEffect(() => {
     setData(null);
@@ -19,7 +21,21 @@ function App() {
     invoke('getProducts').then(setProducts);
   }, [])
 
+  useEffect(() => {
+    invoke('getStatusStats').then(setStatusStats);
+  }, []);
+
   const totalPages = data ? Math.max(Math.ceil(data.total / data.pageSize), 1) : 1;
+
+  const resetFilters = () => {
+    setProductId('');
+    setStatus('');
+    setDateFrom('');
+    setDateTo('');
+    setPage(1);
+  };
+
+  const hasFilters = productId !== '' || status !== '' || dateFrom !== '' || dateTo !== '';
 
   return (
     <div>
@@ -74,11 +90,25 @@ function App() {
           <option value="testing">testing</option>
           <option value="done">done</option>
         </select>
+
+        <button onClick={resetFilters} disabled={!hasFilters}>
+          Reset filters
+        </button>
       </div>
       <button onClick={() => setPage((p) => Math.max(p - 1, 1))} disabled={page === 1}>Prev</button>
       <span>Page {page} of {totalPages}</span>
       <button onClick={() => setPage((p) => p + 1)} disabled={!data || page >= totalPages}>Next</button>
       <button onClick={() => setPage(totalPages)} disabled={!data}>Last</button>
+
+      {statusStats && (
+        <BarChart width={600} height={300} data={statusStats}>
+          <XAxis dataKey="status" />
+          <YAxis />
+          <Tooltip />
+          <Bar dataKey="total" fill="#0c66e4" />
+        </BarChart>
+      )}
+
       {data ? (
         <table>
           <thead>

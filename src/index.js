@@ -112,5 +112,21 @@ resolver.define('getHistory', async ({ payload }) => {
   return {rows: result.rows, total, page, pageSize };
 });
 
+resolver.define('getStatusStats', async () => {
+  const result = await sql
+    .prepare(`
+      SELECT h.to_status AS status, COUNT(*) AS total
+      FROM tasks_history h
+      GROUP BY h.to_status
+      ORDER BY total DESC     
+    `)
+    .execute();
+
+    return result.rows.map(row => ({
+      status: row.status,
+      total: Number(row.total)
+    }));
+})
+
 export const handler = resolver.getDefinitions();
 
