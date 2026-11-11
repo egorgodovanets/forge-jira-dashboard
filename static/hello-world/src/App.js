@@ -22,8 +22,8 @@ function App() {
   }, [])
 
   useEffect(() => {
-    invoke('getStatusStats').then(setStatusStats);
-  }, []);
+    invoke('getStatusStats', { productId, status, dateFrom, dateTo }).then(setStatusStats);
+  }, [productId, status, dateFrom, dateTo]);
 
   const totalPages = data ? Math.max(Math.ceil(data.total / data.pageSize), 1) : 1;
 
@@ -96,7 +96,7 @@ function App() {
         </button>
       </div>
       <button onClick={() => setPage((p) => Math.max(p - 1, 1))} disabled={page === 1}>Prev</button>
-      <span>Page {page} of {totalPages}</span>
+      <span>Page {page} of {totalPages} ({data?.total ?? 0} events)</span>
       <button onClick={() => setPage((p) => p + 1)} disabled={!data || page >= totalPages}>Next</button>
       <button onClick={() => setPage(totalPages)} disabled={!data}>Last</button>
 

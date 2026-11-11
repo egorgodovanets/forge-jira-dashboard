@@ -3,6 +3,41 @@ import { sql } from '@forge/sql';
 
 const resolver = new Resolver();
 
+function buildHistoryWhere(payload) {
+  const productId = Number(payload?.productId);
+  const hasProduct = Number.isInteger(productId) && productId > 0;
+  const conditions = [];
+  const params = [];
+
+  if (hasProduct) {
+    conditions.push('p.id = ?');
+    params.push(productId);
+  }
+
+  const STATUSES = ['open', 'in_progress', 'review', 'testing', 'done'];
+  const status = payload?.status;
+  if (STATUSES.includes(status)) {
+    conditions.push('h.to_status = ?');
+    params.push(status);
+  }
+
+  const DATE_FORMAT = /^\d{4}-\d{2}-\d{2}$/;
+
+  if (DATE_FORMAT.test(payload?.dateFrom ?? '')) {
+    conditions.push('h.changed_at >= ?');
+    params.push(`${payload.dateFrom} 00:00:00`);
+  }
+
+  if (DATE_FORMAT.test(payload?.dateTo ?? '')) {
+    conditions.push('h.changed_at <= ?');
+    params.push(`${payload.dateTo} 23:59:59`);
+  }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  return { where, params }
+}
+
 resolver.define('getText', (req) => {
     console.log(req);
 
@@ -47,36 +82,8 @@ resolver.define('getHistory', async ({ payload }) => {
   const pageSize = 10;
   const page = Math.max(Math.floor(Number(payload?.page)) || 1, 1);
   const offset = (page - 1) * pageSize;
-  const productId = Number(payload?.productId);
-  const hasProduct = Number.isInteger(productId) && productId > 0;
-  const conditions = [];
-  const params = [];
 
-  if (hasProduct) {
-    conditions.push('p.id = ?');
-    params.push(productId);
-  }
-
-  const STATUSES = ['open', 'in_progress', 'review', 'testing', 'done'];
-  const status = payload?.status;
-  if (STATUSES.includes(status)) {
-    conditions.push('h.to_status = ?');
-    params.push(status);
-  }
-
-  const DATE_FORMAT = /^\d{4}-\d{2}-\d{2}$/;
-
-  if (DATE_FORMAT.test(payload?.dateFrom ?? '')) {
-    conditions.push('h.changed_at >= ?');
-    params.push(`${payload.dateFrom} 00:00:00`);
-  }
-
-  if (DATE_FORMAT.test(payload?.dateTo ?? '')) {
-    conditions.push('h.changed_at <= ?');
-    params.push(`${payload.dateTo} 23:59:59`);
-  }
-
-  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const { where, params } = buildHistoryWhere(payload);
 
   const result = await sql
     .prepare(`
@@ -112,21 +119,27 @@ resolver.define('getHistory', async ({ payload }) => {
   return {rows: result.rows, total, page, pageSize };
 });
 
-resolver.define('getStatusStats', async () => {
+resolver.define('getStatusStats', async ({ payload }) => {
+  const { where, params } = buildHistoryWhere(payload);
+
   const result = await sql
     .prepare(`
       SELECT h.to_status AS status, COUNT(*) AS total
       FROM tasks_history h
+      JOIN tasks t    ON t.id = h.task_id
+      JOIN products p ON p.id = t.product_id
+      ${where}
       GROUP BY h.to_status
-      ORDER BY total DESC     
+      ORDER BY total DESC
     `)
+    .bindParams(...params)
     .execute();
 
-    return result.rows.map(row => ({
-      status: row.status,
-      total: Number(row.total)
-    }));
-})
+  return result.rows.map((row) => ({
+    status: row.status,
+    total: Number(row.total),
+  }));
+});
 
 export const handler = resolver.getDefinitions();
 
