@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip } from 'recharts';
 import { invoke } from '@forge/bridge';
 
 function App() {
@@ -11,6 +11,7 @@ function App() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [statusStats, setStatusStats] = useState(null);
+  const [dailyStats, setDailyStats] = useState(null);
 
   useEffect(() => {
     setData(null);
@@ -23,6 +24,10 @@ function App() {
 
   useEffect(() => {
     invoke('getStatusStats', { productId, status, dateFrom, dateTo }).then(setStatusStats);
+  }, [productId, status, dateFrom, dateTo]);
+
+  useEffect(() => {
+    invoke('getDailyStats', { productId, status, dateFrom, dateTo }).then(setDailyStats);
   }, [productId, status, dateFrom, dateTo]);
 
   const totalPages = data ? Math.max(Math.ceil(data.total / data.pageSize), 1) : 1;
@@ -107,6 +112,15 @@ function App() {
           <Tooltip />
           <Bar dataKey="total" fill="#0c66e4" />
         </BarChart>
+      )}
+
+      {dailyStats && (
+        <LineChart width={600} height={300} data={dailyStats}>
+          <XAxis dataKey="day" />
+          <YAxis />
+          <Tooltip />
+          <Line type="monotone" dataKey="total" stroke="#0c66e4" dot={false} />
+        </LineChart>
       )}
 
       {data ? (

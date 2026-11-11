@@ -141,5 +141,27 @@ resolver.define('getStatusStats', async ({ payload }) => {
   }));
 });
 
+resolver.define('getDailyStats', async ({ payload }) => {
+  const { where, params } = buildHistoryWhere(payload);
+
+  const result = await sql
+    .prepare(`
+      SELECT DATE(h.changed_at) AS day, COUNT(*) AS total
+      FROM tasks_history h
+      JOIN tasks t    ON t.id = h.task_id
+      JOIN products p ON p.id = t.product_id
+      ${where}
+      GROUP BY DATE(h.changed_at)
+      ORDER BY day
+    `)
+    .bindParams(...params)
+    .execute();
+
+  return result.rows.map((row) => ({
+    day: row.day,
+    total: Number(row.total),
+  }));
+});
+
 export const handler = resolver.getDefinitions();
 
