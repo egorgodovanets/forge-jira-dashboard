@@ -12,6 +12,7 @@ function App() {
   const [dateTo, setDateTo] = useState('');
   const [statusStats, setStatusStats] = useState(null);
   const [dailyStats, setDailyStats] = useState(null);
+  const [exportInfo, setExportInfo] = useState(null);
 
   useEffect(() => {
     setData(null);
@@ -38,6 +39,14 @@ function App() {
     setDateFrom('');
     setDateTo('');
     setPage(1);
+  };
+
+    // Временная проверка: сколько строк вернёт экспорт
+  const testExport = () => {
+    setExportInfo('Loading...');
+    invoke('getHistoryExport', { productId, status, dateFrom, dateTo }).then((result) => {
+      setExportInfo(`${result.rows.length} rows, truncated: ${result.truncated}`);
+    });
   };
 
   const hasFilters = productId !== '' || status !== '' || dateFrom !== '' || dateTo !== '';
@@ -99,6 +108,9 @@ function App() {
         <button onClick={resetFilters} disabled={!hasFilters}>
           Reset filters
         </button>
+
+        <button onClick={testExport}>Test export</button>
+        {exportInfo && <span> {exportInfo}</span>}
       </div>
       <button onClick={() => setPage((p) => Math.max(p - 1, 1))} disabled={page === 1}>Prev</button>
       <span>Page {page} of {totalPages} ({data?.total ?? 0} events)</span>

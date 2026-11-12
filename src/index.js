@@ -163,5 +163,38 @@ resolver.define('getDailyStats', async ({ payload }) => {
   }));
 });
 
+resolver.define('getHistoryExport', async ({ payload }) => {
+  // Максимум строк в одном экспорте, чтобы не упереться в лимиты ответа
+  const MAX_EXPORT_ROWS = 10000;
+
+  // Тот же WHERE, что у таблицы и графиков, поэтому фильтры совпадают
+  const { where, params } = buildHistoryWhere(payload);
+
+  const result = await sql
+    .prepare(`
+      SELECT
+        h.id,
+        h.changed_at,
+        h.from_status,
+        h.to_status,
+        t.name AS task_name,
+        p.name AS product_name
+      FROM tasks_history h
+      JOIN tasks t    ON t.id = h.task_id
+      JOIN products p ON p.id = t.product_id
+      ${where}
+      ORDER BY h.changed_at DESC, h.id DESC
+      LIMIT ${MAX_EXPORT_ROWS + 1}
+    `)
+    .bindParams(...params)
+    .execute();
+
+  // Пришла лишняя строка: данных больше лимита
+  const truncated = result.rows.length > MAX_EXPORT_ROWS;
+  const rows = truncated ? result.rows.slice(0, MAX_EXPORT_ROWS) : result.rows;
+
+  return { rows, truncated };
+});
+
 export const handler = resolver.getDefinitions();
 
