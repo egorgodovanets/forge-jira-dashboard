@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip } from 'recharts';
 import { invoke } from '@forge/bridge';
+import { jsPDF } from 'jspdf';
+import { autoTable } from 'jspdf-autotable';
 
 function App() {
   const [data, setData] = useState(null);
@@ -12,7 +14,7 @@ function App() {
   const [dateTo, setDateTo] = useState('');
   const [statusStats, setStatusStats] = useState(null);
   const [dailyStats, setDailyStats] = useState(null);
-  const [exportInfo, setExportInfo] = useState(null);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     setData(null);
@@ -41,12 +43,37 @@ function App() {
     setPage(1);
   };
 
-    // Временная проверка: сколько строк вернёт экспорт
-  const testExport = () => {
-    setExportInfo('Loading...');
-    invoke('getHistoryExport', { productId, status, dateFrom, dateTo }).then((result) => {
-      setExportInfo(`${result.rows.length} rows, truncated: ${result.truncated}`);
-    });
+  const exportPdf = async () => {
+    setExporting(true);
+
+    try {
+      // 1. Берём все строки по текущим фильтрам, без пагинации
+      const result = await invoke('getHistoryExport', { productId, status, dateFrom, dateTo });
+
+      // 2. Новый документ: A4, книжная ориентация, единицы в миллиметрах
+      const doc = new jsPDF();
+
+      // 3. Заголовок: текст, x = 14 мм от левого края, y = 15 мм от верха
+      doc.text('Task history', 14, 15);
+
+      // 4. Таблица. head — шапка, body — массив строк, каждая строка — массив ячеек
+      autoTable(doc, {
+        startY: 20, // таблица начинается под заголовком
+        head: [['Date', 'Product', 'Task', 'Transition']],
+        body: result.rows.map((row) => [
+          row.changed_at,
+          row.product_name,
+          row.task_name,
+          `${row.from_status ?? '-'} -> ${row.to_status}`,
+        ]),
+      });
+
+      // 5. Скачиваем файл
+      doc.save('task-history.pdf');
+    } finally {
+      // finally выполнится и при успехе, и при ошибке, поэтому кнопка не залипнет
+      setExporting(false);
+    }
   };
 
   const hasFilters = productId !== '' || status !== '' || dateFrom !== '' || dateTo !== '';
@@ -109,8 +136,9 @@ function App() {
           Reset filters
         </button>
 
-        <button onClick={testExport}>Test export</button>
-        {exportInfo && <span> {exportInfo}</span>}
+        <button onClick={exportPdf} disabled={exporting}>
+          {exporting ? 'Exporting...' : 'Export PDF'}
+        </button>
       </div>
       <button onClick={() => setPage((p) => Math.max(p - 1, 1))} disabled={page === 1}>Prev</button>
       <span>Page {page} of {totalPages} ({data?.total ?? 0} events)</span>
