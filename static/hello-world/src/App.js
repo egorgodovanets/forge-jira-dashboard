@@ -1,8 +1,48 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip } from 'recharts';
 import { invoke } from '@forge/bridge';
 import { jsPDF } from 'jspdf';
 import { autoTable } from 'jspdf-autotable';
+
+// Превращает SVG-график Recharts в PNG (data URL), который понимает jsPDF.
+// container — div, внутри которого Recharts нарисовал свой <svg>
+function chartToPng(container) {
+  return new Promise((resolve, reject) => {
+    // Recharts помечает основной svg классом recharts-surface
+    const svg = container?.querySelector('svg.recharts-surface');
+    if (!svg) {
+      resolve(null); // графика нет, например данные ещё не загрузились
+      return;
+    }
+
+    const width = svg.clientWidth;
+    const height = svg.clientHeight;
+
+    // 1. SVG-элемент → строка с разметкой
+    const svgString = new XMLSerializer().serializeToString(svg);
+
+    // 2. Строка → картинка
+    const image = new Image();
+    image.onload = () => {
+      // 3. Картинка → canvas. Рисуем в 2 раза крупнее, иначе в PDF будет мыльно
+      const scale = 2;
+      const canvas = document.createElement('canvas');
+      canvas.width = width * scale;
+      canvas.height = height * scale;
+
+      const ctx = canvas.getContext('2d');
+      ctx.scale(scale, scale);
+      ctx.fillStyle = '#ffffff'; // у SVG прозрачный фон, заливаем белым
+      ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(image, 0, 0, width, height);
+
+      // 4. Canvas → PNG
+      resolve({ png: canvas.toDataURL('image/png'), width, height });
+    };
+    image.onerror = reject;
+    image.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
+  });
+}
 
 function App() {
   const [data, setData] = useState(null);
@@ -15,6 +55,8 @@ function App() {
   const [statusStats, setStatusStats] = useState(null);
   const [dailyStats, setDailyStats] = useState(null);
   const [exporting, setExporting] = useState(false);
+  const barChartRef = useRef(null);
+  const lineChartRef = useRef(null);
 
   useEffect(() => {
     setData(null);
@@ -77,9 +119,32 @@ function App() {
       // Сводка мелко, массив строк печатается столбиком
       doc.setFontSize(10);
       doc.text(summary, 14, 23);
+
+      // Графики рядом друг с другом. Ширина A4 — 210 мм, поля по 14 мм,
+      // полезная ширина 182 мм: два графика по 88 мм и зазор 6 мм между ними
+      const chartWidth = 88;
+      const chartsTop = 48;
+      let tableTop = chartsTop;
+
+      const charts = [
+        await chartToPng(barChartRef.current),
+        await chartToPng(lineChartRef.current),
+      ];
+
+      charts.forEach((chart, index) => {
+        if (!chart) return;
+
+        // Высоту считаем по пропорциям оригинала, чтобы график не сплющило
+        const chartHeight = (chart.height / chart.width) * chartWidth;
+        const x = 14 + index * (chartWidth + 6);
+
+        doc.addImage(chart.png, 'PNG', x, chartsTop, chartWidth, chartHeight);
+        tableTop = Math.max(tableTop, chartsTop + chartHeight + 6);
+      });
+      
       // 4. Таблица. head — шапка, body — массив строк, каждая строка — массив ячеек
       autoTable(doc, {
-        startY: 48, // таблица начинается под заголовком
+        startY: tableTop, // под графиками, а если их нет — сразу под сводкой
         head: [['Date', 'Product', 'Task', 'Transition']],
         body: result.rows.map((row) => [
           row.changed_at,
@@ -167,21 +232,25 @@ function App() {
       <button onClick={() => setPage(totalPages)} disabled={!data}>Last</button>
 
       {statusStats && (
-        <BarChart width={600} height={300} data={statusStats}>
-          <XAxis dataKey="status" />
-          <YAxis />
-          <Tooltip />
-          <Bar dataKey="total" fill="#0c66e4" />
-        </BarChart>
+         <div ref={barChartRef}>
+          <BarChart width={600} height={300} data={statusStats}>
+            <XAxis dataKey="status" />
+            <YAxis />
+            <Tooltip />
+            <Bar dataKey="total" fill="#0c66e4" />
+          </BarChart>
+         </div>
       )}
 
       {dailyStats && (
-        <LineChart width={600} height={300} data={dailyStats}>
-          <XAxis dataKey="day" />
-          <YAxis />
-          <Tooltip />
-          <Line type="monotone" dataKey="total" stroke="#0c66e4" dot={false} />
-        </LineChart>
+        <div ref={lineChartRef}>
+          <LineChart width={600} height={300} data={dailyStats}>
+            <XAxis dataKey="day" />
+            <YAxis />
+            <Tooltip />
+            <Line type="monotone" dataKey="total" stroke="#0c66e4" dot={false} />
+          </LineChart>
+        </div>
       )}
 
       {data ? (
