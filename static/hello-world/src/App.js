@@ -53,12 +53,33 @@ function App() {
       // 2. Новый документ: A4, книжная ориентация, единицы в миллиметрах
       const doc = new jsPDF();
 
-      // 3. Заголовок: текст, x = 14 мм от левого края, y = 15 мм от верха
+      // Имя выбранного продукта. productId из select приходит строкой, а id из БД числом,
+      // поэтому сравниваем как строки
+      const productName =
+        products.find((product) => String(product.id) === productId)?.name ?? 'All products';
+
+      // Время генерации в UTC в формате "2026-11-12 14:05"
+      const generatedAt = new Date().toISOString().slice(0, 16).replace('T', ' ');
+
+      // Строки сводки. Пустой фильтр показываем как "All" или "any", а не как пустоту
+      const summary = [
+        `Product: ${productName}`,
+        `Status: ${status || 'All statuses'}`,
+        `Period: ${dateFrom || 'any'} - ${dateTo || 'any'} (UTC)`,
+        `Rows: ${result.rows.length}${result.truncated ? ' (limit reached, older rows not included)' : ''}`,
+        `Generated: ${generatedAt} UTC`,
+      ];
+
+      // Заголовок крупно
+      doc.setFontSize(16);
       doc.text('Task history', 14, 15);
 
+      // Сводка мелко, массив строк печатается столбиком
+      doc.setFontSize(10);
+      doc.text(summary, 14, 23);
       // 4. Таблица. head — шапка, body — массив строк, каждая строка — массив ячеек
       autoTable(doc, {
-        startY: 20, // таблица начинается под заголовком
+        startY: 48, // таблица начинается под заголовком
         head: [['Date', 'Product', 'Task', 'Transition']],
         body: result.rows.map((row) => [
           row.changed_at,
