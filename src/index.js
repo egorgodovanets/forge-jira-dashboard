@@ -164,10 +164,9 @@ resolver.define('getDailyStats', async ({ payload }) => {
 });
 
 resolver.define('getHistoryExport', async ({ payload }) => {
-  // Максимум строк в одном экспорте, чтобы не упереться в лимиты ответа
+  // Cap the export to stay within Forge response size limits.
   const MAX_EXPORT_ROWS = 10000;
 
-  // Тот же WHERE, что у таблицы и графиков, поэтому фильтры совпадают
   const { where, params } = buildHistoryWhere(payload);
 
   const result = await sql
@@ -189,7 +188,7 @@ resolver.define('getHistoryExport', async ({ payload }) => {
     .bindParams(...params)
     .execute();
 
-  // Пришла лишняя строка: данных больше лимита
+  // We fetch one extra row: if it arrives, the result was cut off.
   const truncated = result.rows.length > MAX_EXPORT_ROWS;
   const rows = truncated ? result.rows.slice(0, MAX_EXPORT_ROWS) : result.rows;
 

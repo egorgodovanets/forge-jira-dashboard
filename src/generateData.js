@@ -1,40 +1,21 @@
 /**
- * Генератор тестовых данных для дашборда.
+ * Deterministic test data generator. Pure module: no Forge SQL, so it can be run locally with node.
+ * Builds row arrays for products, tasks and tasks_history in the column order of migrations.js.
  *
- * Это «чистый» модуль: он ничего не знает о Forge SQL и ничего не пишет в базу.
- * Он только строит в памяти три массива строк — products, tasks, history —
- * в том же порядке колонок, что и таблицы в migrations.js.
- * Поэтому его можно запускать и проверять локально через node, без деплоя.
- *
- * Главная идея согласованности: статус задачи НЕ выбирается случайно отдельно.
- * Сначала генерируется история переходов, а tasks.status берётся из последнего
- * перехода. Так последний to_status в истории всегда совпадает со статусом задачи.
+ * Task status is derived from the generated history, so it always matches the last to_status.
  */
 
-// ---------------------------------------------------------------------------
-// Справочники и настройки
-// ---------------------------------------------------------------------------
-
-/** Все допустимые статусы задачи (машинные коды, как хранятся в базе). */
 export const STATUSES = ['open', 'in_progress', 'review', 'testing', 'done'];
 
-/**
- * Порядок колонок для каждой таблицы. Каждая сгенерированная строка —
- * это массив значений ровно в этом порядке. Пригодится при сборке INSERT.
- */
+// Column order per table. Every generated row is an array of values in this order.
 export const COLUMNS = {
   products: ['id', 'name', 'organization', 'state', 'created_at'],
   tasks: ['id', 'product_id', 'name', 'description', 'status', 'assignee', 'created_at', 'due_date'],
   tasks_history: ['id', 'task_id', 'from_status', 'to_status', 'changed_at'],
 };
 
-/**
- * Конечный автомат статусов: из какого статуса куда можно перейти и с каким весом.
- * Вес — относительная вероятность: [['testing', 3], ['in_progress', 1]] значит
- * «в testing в 3 раза чаще, чем обратно в in_progress».
- * Возвраты в in_progress — это «отправили на доработку» (rework).
- * Из done переходов нет: это конечная точка.
- */
+// Allowed status transitions with relative weights.
+// Going back to in_progress means rework; done is final.
 const TRANSITIONS = {
   open: [['in_progress', 1]],
   in_progress: [['review', 1]],
@@ -43,18 +24,18 @@ const TRANSITIONS = {
   done: [],
 };
 
-/** Настройки по умолчанию. Любую можно переопределить через generateData({ ... }). */
+// Defaults, each can be overridden via generateData({ ... }).
 const DEFAULT_OPTIONS = {
-  seed: 42, // зерно генератора случайных чисел: одинаковое зерно → одинаковые данные
+  seed: 42, // same seed -> same data
   productCount: 15,
-  taskCount: 1400, // при остальных настройках даёт ~5000 строк истории
-  taskWindowDays: 180, // задачи создаются в течение последних N дней
-  continueChance: 0.8, // шанс, что задача сделает ещё один переход, а не «замрёт»
-  maxTransitions: 12, // страховка от бесконечного хождения review ⇄ in_progress
-  minGapHours: 2, // минимальная пауза между переходами
-  maxGapHours: 72, // максимальная пауза между переходами
-  noDueDateChance: 0.15, // доля задач без дедлайна (due_date = NULL)
-  archivedChance: 0.2, // доля архивных продуктов
+  taskCount: 1400, // ~5000 history rows with the other defaults
+  taskWindowDays: 180, // tasks are created within the last N days
+  continueChance: 0.8, // chance a task makes one more transition
+  maxTransitions: 12, // guards against endless review <-> in_progress loops
+  minGapHours: 2,
+  maxGapHours: 72,
+  noDueDateChance: 0.15, // share of tasks with due_date = NULL
+  archivedChance: 0.2, // share of archived products
 };
 
 const PRODUCT_PREFIXES = ['Nova', 'Orion', 'Atlas', 'Zephyr', 'Helix', 'Quantum', 'Vertex', 'Lumen'];
@@ -84,17 +65,7 @@ const TASK_SUBJECTS = [
   'error logging',
 ];
 
-// ---------------------------------------------------------------------------
-// Случайные числа
-// ---------------------------------------------------------------------------
-
-/**
- * Генератор псевдослучайных чисел с зерном (алгоритм mulberry32).
- * Math.random() каждый раз даёт новые данные, а этот генератор при одном
- * и том же seed выдаёт одну и ту же последовательность. Это удобно для отладки:
- * перезапустил seed — получил те же самые строки.
- * Возвращает функцию, которая, как Math.random(), даёт число в [0, 1).
- */
+// Seeded PRNG (mulberry32): like Math.random(), but reproducible for the same seed.
 function createRandom(seed) {
   let state = seed >>> 0;
   return function random() {
@@ -106,28 +77,18 @@ function createRandom(seed) {
   };
 }
 
-/**
- * Набор удобных помощников поверх одной функции random().
- * Все они используют один и тот же генератор, поэтому результат воспроизводим.
- */
 function createHelpers(random) {
-  /** Целое число от min до max включительно. */
+  // Integer in [min, max].
   const randomInt = (min, max) => min + Math.floor(random() * (max - min + 1));
 
-  /** Случайный элемент массива. */
   const pick = (items) => items[Math.floor(random() * items.length)];
 
-  /** true с вероятностью probability (0..1). */
   const chance = (probability) => random() < probability;
 
-  /** Случайная дата в диапазоне [from, to). */
   const randomDateBetween = (from, to) =>
     new Date(from.getTime() + Math.floor(random() * (to.getTime() - from.getTime())));
 
-  /**
-   * Выбор с весами: options = [['a', 3], ['b', 1]] → 'a' в 75% случаев.
-   * Берём случайную точку на отрезке [0, сумма весов) и смотрим, в чей кусок она попала.
-   */
+  // Weighted pick: [['a', 3], ['b', 1]] -> 'a' in 75% of cases.
   const pickWeighted = (options) => {
     const total = options.reduce((sum, [, weight]) => sum + weight, 0);
     let point = random() * total;
@@ -135,43 +96,27 @@ function createHelpers(random) {
       point -= weight;
       if (point < 0) return value;
     }
-    return options[options.length - 1][0]; // защита от погрешностей округления
+    return options[options.length - 1][0]; // guard against floating point rounding
   };
 
   return { randomInt, pick, chance, randomDateBetween, pickWeighted };
 }
 
-// ---------------------------------------------------------------------------
-// Даты
-// ---------------------------------------------------------------------------
-
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 
-/** Новая дата на hours часов позже. Исходную дату не меняем (Date изменяемый объект). */
+// Return new Date objects, never mutate the input.
 const addHours = (date, hours) => new Date(date.getTime() + hours * HOUR_MS);
-
-/** Новая дата на days дней позже (days может быть отрицательным). */
 const addDays = (date, days) => new Date(date.getTime() + days * DAY_MS);
 
-/**
- * Date → строка для колонки DATETIME: 'YYYY-MM-DD HH:MM:SS' (в UTC).
- * toISOString() даёт '2026-10-26T17:27:10.000Z': обрезаем миллисекунды и Z, T меняем на пробел.
- */
+// Date -> 'YYYY-MM-DD HH:MM:SS' (UTC) for DATETIME columns.
 export const toSqlDateTime = (date) => date.toISOString().slice(0, 19).replace('T', ' ');
 
-/** Date → строка для колонки DATE: 'YYYY-MM-DD' (в UTC). */
+// Date -> 'YYYY-MM-DD' (UTC) for DATE columns.
 export const toSqlDate = (date) => date.toISOString().slice(0, 10);
 
-// ---------------------------------------------------------------------------
-// Генерация
-// ---------------------------------------------------------------------------
-
-/**
- * Продукты. Имена строим из комбинаций префикс + суффикс по индексу,
- * чтобы они гарантированно не повторялись (8 × 5 = 40 уникальных имён).
- * Продукты «старше» задач: созданы 200–365 дней назад, а задачи — за последние 180 дней.
- */
+// Names are prefix + suffix by index, so they are unique (8 x 5 = 40 max).
+// Products are created 200-365 days ago, i.e. before any task.
 function generateProducts(options, helpers, now) {
   const { randomInt, pick, chance } = helpers;
   const maxUniqueNames = PRODUCT_PREFIXES.length * PRODUCT_SUFFIXES.length;
@@ -185,9 +130,9 @@ function generateProducts(options, helpers, now) {
     const suffix = PRODUCT_SUFFIXES[Math.floor(i / PRODUCT_PREFIXES.length)];
     const createdAt = addDays(now, -randomInt(200, 365));
 
-    // Порядок значений = COLUMNS.products
+    // Same order as COLUMNS.products
     products.push([
-      i + 1, // id: 1, 2, 3, ... задаём сами
+      i + 1,
       `${prefix} ${suffix}`,
       pick(ORGANIZATIONS),
       chance(options.archivedChance) ? 'archived' : 'active',
@@ -198,15 +143,9 @@ function generateProducts(options, helpers, now) {
 }
 
 /**
- * Жизнь одной задачи: последовательность переходов статусов во времени.
- * Возвращает массив событий { from, to, at } и итоговый статус.
- *
- * Алгоритм:
- *   1. Первое событие — создание задачи: null → open в момент createdAt.
- *   2. Дальше в цикле: с шансом continueChance задача делает следующий переход
- *      по таблице TRANSITIONS через случайную паузу; иначе «замирает».
- *   3. Стоп, если дошли до done, если следующий переход оказался бы в будущем,
- *      или если упёрлись в maxTransitions.
+ * Status timeline of one task: starts with null -> open, then follows TRANSITIONS
+ * until done, a random stop, a future timestamp or maxTransitions.
+ * Returns the events { from, to, at } and the final status.
  */
 function generateLifecycle(createdAt, options, helpers, now) {
   const { randomInt, chance, pickWeighted } = helpers;
@@ -217,11 +156,11 @@ function generateLifecycle(createdAt, options, helpers, now) {
 
   for (let step = 0; step < options.maxTransitions; step++) {
     const possibleNext = TRANSITIONS[current];
-    if (possibleNext.length === 0) break; // done — дальше идти некуда
-    if (!chance(options.continueChance)) break; // задача «замерла» в текущем статусе
+    if (possibleNext.length === 0) break;
+    if (!chance(options.continueChance)) break;
 
     const nextTime = addHours(time, randomInt(options.minGapHours, options.maxGapHours));
-    if (nextTime > now) break; // событий из будущего быть не должно
+    if (nextTime > now) break; // no events in the future
 
     const next = pickWeighted(possibleNext);
     events.push({ from: current, to: next, at: nextTime });
@@ -232,18 +171,14 @@ function generateLifecycle(createdAt, options, helpers, now) {
   return { events, finalStatus: current };
 }
 
-/**
- * Задачи и их история — генерируются ВМЕСТЕ, одна задача за раз.
- * id задач и записей истории — сквозные счётчики 1, 2, 3, ...
- */
+// Tasks and their history are generated together, one task at a time.
 function generateTasksWithHistory(products, options, helpers, now) {
   const { randomInt, pick, chance, randomDateBetween } = helpers;
   const tasks = [];
   const history = [];
   let nextHistoryId = 1;
 
-  // Окно создания задач: от (now - taskWindowDays) до (now - 1 день),
-  // чтобы у самых свежих задач было хоть немного времени на переходы.
+  // Window ends a day ago so even the newest tasks have time for some transitions.
   const windowStart = addDays(now, -options.taskWindowDays);
   const windowEnd = addDays(now, -1);
 
@@ -256,20 +191,20 @@ function generateTasksWithHistory(products, options, helpers, now) {
     const { events, finalStatus } = generateLifecycle(createdAt, options, helpers, now);
 
     for (const event of events) {
-      // Порядок значений = COLUMNS.tasks_history
+      // Same order as COLUMNS.tasks_history
       history.push([nextHistoryId++, taskId, event.from, event.to, toSqlDateTime(event.at)]);
     }
 
     const name = `${pick(TASK_ACTIONS)} ${pick(TASK_SUBJECTS)}`;
     const dueDate = chance(options.noDueDateChance) ? null : toSqlDate(addDays(createdAt, randomInt(7, 30)));
 
-    // Порядок значений = COLUMNS.tasks
+    // Same order as COLUMNS.tasks
     tasks.push([
       taskId,
       productId,
       name,
       `${name} for ${productName}.`,
-      finalStatus, // ← берётся из истории, поэтому всегда совпадает с последним to_status
+      finalStatus, // derived from history
       pick(ASSIGNEES),
       toSqlDateTime(createdAt),
       dueDate,
@@ -280,13 +215,8 @@ function generateTasksWithHistory(products, options, helpers, now) {
 }
 
 /**
- * Точка входа модуля.
- *
- * @param {object} overrides — необязательные настройки поверх DEFAULT_OPTIONS,
- *   например generateData({ taskCount: 100 }) для быстрой проверки.
- *   now — «текущий момент», относительно которого строятся даты (удобно фиксировать в тестах).
- * @returns {{ products: any[][], tasks: any[][], history: any[][] }}
- *   Три массива строк; порядок значений в строке совпадает с COLUMNS.
+ * @param {object} overrides - options on top of DEFAULT_OPTIONS; `now` fixes the reference date.
+ * @returns {{ products: any[][], tasks: any[][], history: any[][] }} rows in COLUMNS order.
  */
 export function generateData(overrides = {}) {
   const { now = new Date(), ...rest } = overrides;
