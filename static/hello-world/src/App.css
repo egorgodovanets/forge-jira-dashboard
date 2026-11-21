@@ -1,0 +1,79 @@
+/* Page: blocks stacked vertically with even spacing */
+.app {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 24px;
+}
+
+/* Filters and actions in one row, wraps on narrow screens */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Pushes Reset / Export to the right edge */
+.toolbar-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* Two charts side by side, stacked when there's not enough width */
+.charts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.card {
+  border: 1px solid #dcdfe4;
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+
+.card h3 {
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.history-table th,
+.history-table td {
+  padding: 6px 8px;
+  text-align: left;
+  border-bottom: 1px solid #dcdfe4;
+}
+
+.history-table tbody tr:nth-child(even) {
+  background: #f7f8f9;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.error {
+  color: #ae2e24;
+  margin: 0;
+}
+
+.muted {
+  color: #626f86;
+  margin: 0;
+}

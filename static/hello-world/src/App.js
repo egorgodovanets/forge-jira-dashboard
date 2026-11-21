@@ -3,6 +3,7 @@ import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip } from 'recharts'
 import { invoke } from '@forge/bridge';
 import { jsPDF } from 'jspdf';
 import { autoTable } from 'jspdf-autotable';
+import './App.css';
 
 // DB status code -> display label. Key order is also the dropdown order.
 const STATUS_LABELS = {
@@ -29,7 +30,11 @@ function chartToPng(container) {
     const width = svg.clientWidth;
     const height = svg.clientHeight;
 
-    const svgString = new XMLSerializer().serializeToString(svg);
+    // The SVG becomes a standalone image without page CSS, so copy the font explicitly
+    // (otherwise chart labels fall back to a serif font in the PDF).
+    const clone = svg.cloneNode(true);
+    clone.setAttribute('font-family', getComputedStyle(svg).fontFamily);
+    const svgString = new XMLSerializer().serializeToString(clone);
 
     const image = new Image();
     image.onload = () => {
@@ -194,30 +199,32 @@ function App() {
   const hasFilters = productId !== '' || status !== '' || dateFrom !== '' || dateTo !== '';
 
   return (
-    <div>
-      <label>
-        From{' '}
-        <input
-          type="date"
-          value={dateFrom}
-          onChange={(e) => {
-            setDateFrom(e.target.value);
-            setPage(1);
-          }}
-        />
-      </label>
-      <label>
-        {' '}To{' '}
-        <input
-          type="date"
-          value={dateTo}
-          onChange={(e) => {
-            setDateTo(e.target.value);
-            setPage(1);
-          }}
-        />
-      </label>
-      <div>
+    <div className="app">
+      {/* Filters and actions */}
+      <div className="toolbar">
+        <label>
+          From
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => {
+              setDateFrom(e.target.value);
+              setPage(1);
+            }}
+          />
+        </label>
+        <label>
+          To
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(e) => {
+              setDateTo(e.target.value);
+              setPage(1);
+            }}
+          />
+        </label>
+
         <select
           value={productId}
           onChange={(e) => {
@@ -232,6 +239,7 @@ function App() {
             </option>
           ))}
         </select>
+
         <select
           value={status}
           onChange={(e) => {
@@ -247,81 +255,108 @@ function App() {
           ))}
         </select>
 
-        <button onClick={resetFilters} disabled={!hasFilters}>
-          Reset filters
-        </button>
-
-        <button onClick={exportPdf} disabled={exporting}>
-          {exporting ? 'Exporting...' : 'Export PDF'}
-        </button>
-        {exportError && <span style={{ color: '#ae2e24' }}> Export failed: {exportError}</span>}
-      </div>
-      <button onClick={() => setPage((p) => Math.max(p - 1, 1))} disabled={page === 1}>Prev</button>
-      <span>Page {page} of {totalPages} ({data?.total ?? 0} events)</span>
-      {historyLoading && data && <span> Loading...</span>}
-      <button onClick={() => setPage((p) => p + 1)} disabled={!data || page >= totalPages}>Next</button>
-      <button onClick={() => setPage(totalPages)} disabled={!data}>Last</button>
-
-      {statusStatsError && <p style={{ color: '#ae2e24' }}>Failed to load status chart: {statusStatsError}</p>}
-
-      {statusStats && (
-         <div ref={barChartRef}>
-          <BarChart width={600} height={300} data={statusStats}>
-            <XAxis dataKey="status" tickFormatter={statusLabel} />
-            <YAxis />
-            <Tooltip labelFormatter={statusLabel} />
-            <Bar dataKey="total" fill="#0c66e4" />
-          </BarChart>
-         </div>
-      )}
-
-      {dailyStatsError && <p style={{ color: '#ae2e24' }}>Failed to load daily chart: {dailyStatsError}</p>}
-
-      {dailyStats && (
-        <div ref={lineChartRef}>
-          <LineChart width={600} height={300} data={dailyStats}>
-            <XAxis dataKey="day" />
-            <YAxis />
-            <Tooltip />
-            <Line type="monotone" dataKey="total" stroke="#0c66e4" dot={false} />
-          </LineChart>
+        <div className="toolbar-actions">
+          <button onClick={resetFilters} disabled={!hasFilters}>
+            Reset filters
+          </button>
+          <button onClick={exportPdf} disabled={exporting}>
+            {exporting ? 'Exporting...' : 'Export PDF'}
+          </button>
         </div>
-      )}
+      </div>
 
-      {historyError ? (
-        <p style={{ color: '#ae2e24' }}>Failed to load history: {historyError}</p>
-      ) : data ? (
-        <table>
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Product</th>
-              <th>Task</th>
-              <th>Transition</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.rows.length === 0 ? (
+      {exportError && <p className="error">Export failed: {exportError}</p>}
+
+      {/* Charts. Refs are on the cards: chartToPng looks for the svg inside them */}
+      <div className="charts">
+        <div className="card" ref={barChartRef}>
+          <h3>Events by target status</h3>
+          {statusStatsError ? (
+            <p className="error">Failed to load: {statusStatsError}</p>
+          ) : statusStats ? (
+            <BarChart width={480} height={260} data={statusStats}>
+              <XAxis dataKey="status" tickFormatter={statusLabel} />
+              <YAxis />
+              <Tooltip labelFormatter={statusLabel} />
+              <Bar dataKey="total" fill="#0c66e4" />
+            </BarChart>
+          ) : (
+            <p className="muted">Loading...</p>
+          )}
+        </div>
+
+        <div className="card" ref={lineChartRef}>
+          <h3>Status changes per day</h3>
+          {dailyStatsError ? (
+            <p className="error">Failed to load: {dailyStatsError}</p>
+          ) : dailyStats ? (
+            <LineChart width={480} height={260} data={dailyStats}>
+              {/* Works for both "2026-10-27" and ISO strings like "2026-10-27T00:00:00.000Z" */}
+              <XAxis dataKey="day" tickFormatter={(day) => String(day).slice(0, 10)} />
+              <YAxis />
+              <Tooltip labelFormatter={(day) => String(day).slice(0, 10)} />
+              <Line type="monotone" dataKey="total" stroke="#0c66e4" dot={false} />
+            </LineChart>
+          ) : (
+            <p className="muted">Loading...</p>
+          )}
+        </div>
+      </div>
+
+      {/* History table with pagination */}
+      <div className="card">
+        <h3>Status changes</h3>
+        {historyError ? (
+          <p className="error">Failed to load: {historyError}</p>
+        ) : data ? (
+          <table className="history-table">
+            <thead>
               <tr>
-                <td colSpan={4}>No results</td>
+                <th>Date (UTC)</th>
+                <th>Product</th>
+                <th>Task</th>
+                <th>Transition</th>
               </tr>
-            ) : (
-              data.rows.map((row) => (
-                <tr key={row.id}>
-                  <td>{row.changed_at}</td>
-                  <td>{row.product_name}</td>
-                  <td>{row.task_name}</td>
-                  <td>
-                    {row.from_status ? statusLabel(row.from_status) : '—'} → {statusLabel(row.to_status)}
-                  </td>
+            </thead>
+            <tbody>
+              {data.rows.length === 0 ? (
+                <tr>
+                  <td colSpan={4}>No results</td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      ) : (
-        'Loading...'
-      )}
+              ) : (
+                data.rows.map((row) => (
+                  <tr key={row.id}>
+                    <td>{row.changed_at}</td>
+                    <td>{row.product_name}</td>
+                    <td>{row.task_name}</td>
+                    <td>
+                      {row.from_status ? statusLabel(row.from_status) : '—'} → {statusLabel(row.to_status)}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        ) : (
+          <p className="muted">Loading...</p>
+        )}
+
+        <div className="pagination">
+          <button onClick={() => setPage((p) => Math.max(p - 1, 1))} disabled={page === 1}>
+            Prev
+          </button>
+          <span>
+            Page {page} of {totalPages} ({data?.total ?? 0} events)
+          </span>
+          <button onClick={() => setPage((p) => p + 1)} disabled={!data || page >= totalPages}>
+            Next
+          </button>
+          <button onClick={() => setPage(totalPages)} disabled={!data}>
+            Last
+          </button>
+          {historyLoading && data && <span className="muted">Loading...</span>}
+        </div>
+      </div>
     </div>
   );
 }
