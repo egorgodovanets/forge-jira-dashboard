@@ -52,36 +52,58 @@ function chartToPng(container) {
   });
 }
 
+// Calls a Forge resolver and tracks { data, error, loading }.
+// Re-runs whenever functionKey or payload content changes.
+function useInvoke(functionKey, payload) {
+  const [state, setState] = useState({ data: null, error: null, loading: true });
+
+  // A new payload object is created on every render, so compare by content.
+  const payloadKey = JSON.stringify(payload ?? {});
+
+  useEffect(() => {
+    // Set to true when a newer request starts or the component unmounts,
+    // so a late response can't overwrite fresher data.
+    let ignore = false;
+
+    // Keep the previous data while loading, so the UI doesn't flicker.
+    setState((prev) => ({ ...prev, error: null, loading: true }));
+
+    invoke(functionKey, JSON.parse(payloadKey))
+      .then((data) => {
+        if (!ignore) setState({ data, error: null, loading: false });
+      })
+      .catch((err) => {
+        console.error(`${functionKey} failed`, err);
+        if (!ignore) setState({ data: null, error: err?.message ?? String(err), loading: false });
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [functionKey, payloadKey]);
+
+  return state;
+}
+
 function App() {
-  const [data, setData] = useState(null);
   const [page, setPage] = useState(1);
-  const [products, setProducts] = useState([]);
   const [productId, setProductId] = useState('');
   const [status, setStatus] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-  const [statusStats, setStatusStats] = useState(null);
-  const [dailyStats, setDailyStats] = useState(null);
   const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState(null);
   const barChartRef = useRef(null);
   const lineChartRef = useRef(null);
 
-  useEffect(() => {
-    setData(null);
-    invoke('getHistory', { page, productId, status, dateFrom, dateTo }).then(setData)
-  }, [page, productId, status, dateFrom, dateTo]);
+  const filters = { productId, status, dateFrom, dateTo };
 
-  useEffect(() => {
-    invoke('getProducts').then(setProducts);
-  }, [])
-
-  useEffect(() => {
-    invoke('getStatusStats', { productId, status, dateFrom, dateTo }).then(setStatusStats);
-  }, [productId, status, dateFrom, dateTo]);
-
-  useEffect(() => {
-    invoke('getDailyStats', { productId, status, dateFrom, dateTo }).then(setDailyStats);
-  }, [productId, status, dateFrom, dateTo]);
+  // Renamed so the JSX below keeps using data, statusStats, dailyStats, products.
+  const { data, error: historyError, loading: historyLoading } = useInvoke('getHistory', { ...filters, page });
+  const { data: statusStats, error: statusStatsError } = useInvoke('getStatusStats', filters);
+  const { data: dailyStats, error: dailyStatsError } = useInvoke('getDailyStats', filters);
+  const { data: productsData } = useInvoke('getProducts');
+  const products = productsData ?? [];
 
   const totalPages = data ? Math.max(Math.ceil(data.total / data.pageSize), 1) : 1;
 
@@ -95,6 +117,7 @@ function App() {
 
   const exportPdf = async () => {
     setExporting(true);
+    setExportError(null);
 
     try {
       // All rows for the current filters, without pagination.
@@ -159,6 +182,9 @@ function App() {
       });
 
       doc.save('task-history.pdf');
+    } catch (err) {
+      console.error('PDF export failed', err);
+      setExportError(err?.message ?? String(err));
     } finally {
       // Re-enable the button even if the export failed.
       setExporting(false);
@@ -228,11 +254,15 @@ function App() {
         <button onClick={exportPdf} disabled={exporting}>
           {exporting ? 'Exporting...' : 'Export PDF'}
         </button>
+        {exportError && <span style={{ color: '#ae2e24' }}> Export failed: {exportError}</span>}
       </div>
       <button onClick={() => setPage((p) => Math.max(p - 1, 1))} disabled={page === 1}>Prev</button>
       <span>Page {page} of {totalPages} ({data?.total ?? 0} events)</span>
+      {historyLoading && data && <span> Loading...</span>}
       <button onClick={() => setPage((p) => p + 1)} disabled={!data || page >= totalPages}>Next</button>
       <button onClick={() => setPage(totalPages)} disabled={!data}>Last</button>
+
+      {statusStatsError && <p style={{ color: '#ae2e24' }}>Failed to load status chart: {statusStatsError}</p>}
 
       {statusStats && (
          <div ref={barChartRef}>
@@ -245,6 +275,8 @@ function App() {
          </div>
       )}
 
+      {dailyStatsError && <p style={{ color: '#ae2e24' }}>Failed to load daily chart: {dailyStatsError}</p>}
+
       {dailyStats && (
         <div ref={lineChartRef}>
           <LineChart width={600} height={300} data={dailyStats}>
@@ -256,7 +288,9 @@ function App() {
         </div>
       )}
 
-      {data ? (
+      {historyError ? (
+        <p style={{ color: '#ae2e24' }}>Failed to load history: {historyError}</p>
+      ) : data ? (
         <table>
           <thead>
             <tr>
