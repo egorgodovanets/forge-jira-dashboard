@@ -1,47 +1,107 @@
-# Forge Hello World
+# Forge Jira Dashboard
 
-This project contains a Forge app written in JavaScript that displays `Hello World!` in a Jira global page.
+A Jira Cloud app built on Atlassian Forge. It adds a global page with a task history dashboard backed by Forge SQL:
 
-See [developer.atlassian.com/platform/forge/](https://developer.atlassian.com/platform/forge) for documentation and tutorials explaining Forge.
+- a paginated table of task status changes (product, task, transition, date);
+- filters by date range, product and target status, applied to everything on the page;
+- two charts: events by target status and status changes per day;
+- PDF export of the current selection, including the filters summary, both charts and all matching rows.
 
-## Requirements
+## Data model
 
-See [Set up Forge](https://developer.atlassian.com/platform/forge/set-up-forge/) for instructions to get set up.
+Three related tables live in Forge SQL (MySQL-compatible), created by `src/migrations.js`:
 
-## Quick start
-- Install top-level dependencies:
-```
-npm install
-```
-
-- Install dependencies (inside of the `static/hello-world` directory):
-```
-npm install
+```text
+products 1 ── * tasks 1 ── * tasks_history
 ```
 
-- Modify your app by editing the files in `static/hello-world/src/`.
+| Table | Columns | Indexes |
+|---|---|---|
+| `products` | `id`, `name`, `organization`, `state` (active / archived), `created_at` | primary key |
+| `tasks` | `id`, `product_id`, `name`, `description`, `status`, `assignee`, `created_at`, `due_date` (nullable) | `product_id`, `created_at`, `status` |
+| `tasks_history` | `id`, `task_id`, `from_status` (null for task creation), `to_status`, `changed_at` | `task_id`, `changed_at` |
 
-- Build your app (inside of the `static/hello-world` directory):
+Statuses: `open`, `in_progress`, `review`, `testing`, `done`. All timestamps are stored in UTC.
+
+## Project structure
+
+```text
+manifest.yml              Forge modules: global page, resolver, SQL, migrations trigger, seed webtrigger
+src/
+  index.js                Resolvers used by the UI (history page, chart data, PDF export rows)
+  migrations.js           Schema migrations (migrationRunner), run by a scheduled trigger
+  generateData.js         Deterministic test data generator (pure JS, no database access)
+  seed.js                 Webtrigger handler: clears tables and inserts generated data in batches
+static/hello-world/       Custom UI frontend (React, Recharts, jsPDF)
+  src/App.js              Dashboard page
+  src/App.css             Layout styles
 ```
-npm run build
-```
 
-- Deploy your app by running:
-```
-forge deploy
-```
+## Setup
 
-- Install your app in an Atlassian site by running:
-```
-forge install
-```
+Requirements: Node.js 22.23.4+ / 24.22.1+ (required by Forge CLI 15), Forge CLI (`npm install -g @forge/cli`), `forge login`, and a Jira Cloud site where you are an admin (a free developer site works).
 
-### Notes
-- Use the `forge deploy` command when you want to persist code changes.
-- Use the `forge install` command when you want to install the app on a new site.
-- Once the app is installed on a site, the site picks up the new app changes you deploy without needing to rerun the install command.
+1. Install dependencies:
 
-## Support
+   ```bash
+   npm install
+   cd static/hello-world
+   npm install            # add --legacy-peer-deps if npm reports an ERESOLVE peer conflict
+   ```
 
-See [Get help](https://developer.atlassian.com/platform/forge/get-help/) for how to get help and provide feedback.
+2. Build the frontend and deploy:
 
+   ```bash
+   npm run build          # inside static/hello-world
+   cd ../..
+   forge deploy
+   ```
+
+3. Install the app on your site:
+
+   ```bash
+   forge install --site <your-site>.atlassian.net --product jira
+   ```
+
+4. Wait for the schema. Migrations run on an hourly scheduled trigger, so tables appear within an hour after the first deploy. Check in Developer Console → your app → SQL → Manage → Schema details (3 tables, migrations `v001`–`v003`).
+
+5. Seed test data. Get the webtrigger URL and call it:
+
+   ```bash
+   forge webtrigger create          # select the installation and seed-webtrigger
+   curl -X POST -H "Content-Type: application/json" -d "{}" <webtrigger-url>
+   ```
+
+   Expected response: `{"products":15,"tasks":1400,"history":5060,"durationMs":...}`. Seeding is idempotent: every call clears the tables and inserts the same data again. Dates are generated relative to the moment of seeding (the last 180 days).
+
+6. Open the app in Jira: **Apps** → **forge-jira-dashboard**.
+
+After code changes: rebuild the frontend if it changed, then run `forge deploy`. `forge install --upgrade` is only needed when scopes or modules in `manifest.yml` change.
+
+## Technical decisions
+
+**Custom UI instead of UI Kit.** Charts (Recharts) and client-side PDF generation (jsPDF) need a real DOM and arbitrary React components, which UI Kit does not allow.
+
+**Filtering and aggregation in SQL.** The frontend never loads the whole history. The table gets one page (10 rows) plus a total count, and the charts get already aggregated rows (`GROUP BY to_status` and `GROUP BY DATE(changed_at)`).
+
+**One WHERE builder for everything.** `buildHistoryWhere` turns UI filters into a WHERE clause used by the table, both charts and the export, so all of them always show the same selection.
+
+**Safe queries.** Filter values go through `?` placeholders. Status is checked against a whitelist and dates against `YYYY-MM-DD`; invalid filters are ignored. `LIMIT`/`OFFSET` are interpolated only as integers computed on the server.
+
+**PDF export on the client.** The `getHistoryExport` resolver returns all matching rows without pagination, capped at 10,000 rows to stay within Forge response limits (a `truncated` flag is shown in the PDF if the cap is hit). The PDF is built in the browser with jsPDF and jspdf-autotable. Charts are converted from Recharts SVG to PNG via canvas.
+
+**Request handling in the UI.** A small `useInvoke` hook tracks loading and error state per request and ignores stale responses, so fast pagination or filter changes never show data from an older request. A failed request only affects its own block.
+
+**Test data.** `generateData.js` is deterministic (seeded PRNG, seed 42) and runs locally without Forge. A task's status is derived from its generated history, so `tasks.status` always matches the last `to_status`. `seed.js` inserts rows in sequential batches of 500 (parents first), deletes children first, and verifies row counts after inserting.
+
+**No foreign keys.** Relations are kept by the seed order instead of database constraints. IDs are assigned by the generator rather than `AUTO_INCREMENT`, which keeps the data reproducible.
+
+## Known limitations and possible improvements
+
+- **The seed webtrigger is a dev-only tool with no authentication.** In production it should be removed from `manifest.yml` or protected.
+- Migrations run hourly. Running them on the app installation lifecycle event would create the schema immediately.
+- Days without events are absent from the daily chart rather than shown as zero.
+- `OFFSET` pagination is fine at this scale. For millions of rows, keyset pagination (by `changed_at, id`) would be faster.
+- Very large exports would be better generated on the server or in the background.
+- Dates are shown in UTC. Converting them to the user's timezone would be friendlier.
+- Next steps for the codebase: migrate the frontend from Create React App to Vite and TypeScript, and add unit tests for `generateData` and `buildHistoryWhere`.
