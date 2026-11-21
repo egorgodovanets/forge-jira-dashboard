@@ -40,10 +40,10 @@ CREATE TABLE IF NOT EXISTS tasks_history (
 
 
 export const run = async () => {
-  
+
   try {
     console.log('Running migrations...')
-    
+
     await migrationRunner
       .enqueue('v001_create_products', CREATE_PRODUCTS)
       .enqueue('v002_create_tasks', CREATE_TASKS)
@@ -52,8 +52,8 @@ export const run = async () => {
 
     console.log('Migrations done')
   } catch (err) {
-    console.error(err)
-    throw new Error(err)
-  } 
-}                                     
-  
+    console.error('Migrations failed', err);
+    // Rethrow the original error to keep its message and stack trace.
+    throw err;
+  }
+}
