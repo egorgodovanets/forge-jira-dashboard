@@ -27,6 +27,14 @@
   gap: 4px;
 }
 
+/* Filter fields group (left side of the toolbar) */
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+
 .filter-label {
   font-size: 12px;
   font-weight: 600;

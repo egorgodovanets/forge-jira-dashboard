@@ -33,8 +33,13 @@ src/
   generateData.js         Deterministic test data generator (pure JS, no database access)
   seed.js                 Webtrigger handler: clears tables and inserts generated data in batches
 static/hello-world/       Custom UI frontend (React, Recharts, jsPDF)
-  src/App.js              Dashboard page
-  src/App.css             Layout styles
+  src/
+    App.js                Dashboard page: wires filters, data loading and blocks together
+    App.css               Styles (Atlassian Design System colors and sizes)
+    constants/status.js   Status labels and colors
+    hooks/                useInvoke (resolver calls), useFilters, usePdfExport
+    components/           FiltersBar, HistoryTable, Pagination, StatusLozenge, Loading, charts/
+    pdf/                  buildHistoryPdf (report layout), chartToPng, drawTransition
 ```
 
 ## Setup
