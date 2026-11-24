@@ -10,11 +10,26 @@ modules:
       handler: index.handler
     - key: runMigrations
       handler: migrations.run
+    - key: runMigrationsQueued
+      handler: migrations.run
+      timeoutSeconds: 900
+    - key: enqueueMigrations
+      handler: migrations.enqueue
     - key: seedData
       handler: seed.trigger
   sql:
     - key: main
       engine: mysql
+  trigger:
+    - key: app-lifecycle-trigger
+      function: enqueueMigrations
+      events:
+        - avi:forge:installed:app
+        - avi:forge:upgraded:app
+  consumer:
+    - key: schema-migration-consumer
+      queue: schema-migration-queue
+      function: runMigrationsQueued
   scheduledTrigger:
     - key: db-migrations
       function: runMigrations

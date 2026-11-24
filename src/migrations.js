@@ -1,4 +1,5 @@
 import { migrationRunner } from '@forge/sql';
+import { Queue } from '@forge/events';
 
 // Migrations are tracked by name: changing the text of an applied migration
 // does not re-run it. Schema changes must be added as new migrations.
@@ -41,7 +42,22 @@ const CREATE_TASKS_HISTORY = `
   )
 `;
 
-// Scheduled trigger handler (manifest.yml: db-migrations -> runMigrations).
+// Async events queue. Its consumer (runMigrationsQueued) gets a 15-minute
+// timeout instead of the ~55 seconds a regular trigger function has.
+const migrationQueue = new Queue({ key: 'schema-migration-queue' });
+
+// Lifecycle trigger handler (manifest.yml: app-lifecycle-trigger).
+// Fires on avi:forge:installed:app (new install) and avi:forge:upgraded:app
+// (major version upgrade). It only schedules the work and returns quickly.
+export const enqueue = async (event) => {
+  console.log(`Lifecycle event ${event?.eventType}: queueing migrations`);
+  await migrationQueue.push({ body: { reason: event?.eventType ?? 'unknown' } });
+};
+
+// Applies pending migrations. Used by two callers:
+//  - the queue consumer, right after install / major upgrade;
+//  - the hourly scheduled trigger, a fallback for minor deploys, which fire no event.
+// Safe to run repeatedly: already applied migrations are skipped by name.
 export const run = async () => {
   try {
     console.log('Running migrations...');

@@ -26,10 +26,10 @@ Statuses: `open`, `in_progress`, `review`, `testing`, `done`. All timestamps are
 ## Project structure
 
 ```text
-manifest.yml              Forge modules: global page, resolver, SQL, migrations trigger, seed webtrigger
+manifest.yml              Forge modules: global page, resolver, SQL, migration triggers + queue, seed webtrigger
 src/
   index.js                Resolvers used by the UI (history page, chart data, PDF export rows)
-  migrations.js           Schema migrations (migrationRunner), run by a scheduled trigger
+  migrations.js           Schema migrations (migrationRunner), run on install/upgrade and hourly
   generateData.js         Deterministic test data generator (pure JS, no database access)
   seed.js                 Webtrigger handler: clears tables and inserts generated data in batches
 static/hello-world/       Custom UI frontend (React, Recharts, jsPDF)
@@ -68,7 +68,7 @@ Requirements: Node.js 22.23.4+ / 24.22.1+ (required by Forge CLI 15), Forge CLI 
    forge install --site <your-site>.atlassian.net --product jira
    ```
 
-4. Wait for the schema. Migrations run on an hourly scheduled trigger, so tables appear within an hour after the first deploy. Check in Developer Console → your app → SQL → Manage → Schema details (3 tables, migrations `v001`–`v003`).
+4. Check the schema. Installing the app fires `avi:forge:installed:app`, which queues the migrations, so the tables appear within a minute or so. An hourly scheduled trigger runs the same migrations as a fallback (for example after minor deploys, which fire no lifecycle event). Check in Developer Console → your app → SQL → Manage → Schema details (3 tables, migrations `v001`–`v003`).
 
 5. Seed test data. Get the webtrigger URL and call it:
 
@@ -104,7 +104,7 @@ After code changes: rebuild the frontend if it changed, then run `forge deploy`.
 ## Known limitations and possible improvements
 
 - **The seed webtrigger is a dev-only tool with no authentication.** In production it should be removed from `manifest.yml` or protected.
-- Migrations run hourly. Running them on the app installation lifecycle event would create the schema immediately.
+- Lifecycle events cover a new install and major upgrades only. A new migration shipped in a minor deploy is applied by the hourly fallback, so it can take up to an hour.
 - Days without events are absent from the daily chart rather than shown as zero.
 - `OFFSET` pagination is fine at this scale. For millions of rows, keyset pagination (by `changed_at, id`) would be faster.
 - Very large exports would be better generated on the server or in the background.
